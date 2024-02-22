@@ -4,6 +4,7 @@ import json
 import os
 import subprocess as sp
 import shutil
+import sys
 import tempfile
 import zipfile
 
@@ -64,6 +65,75 @@ def extract_zip(path_zip, out_genome_dir):
                     shutil.copy(os.path.join(dirpath, fn), os.getcwd())
 
 
+def SimpleFastaParser(handle):
+    """Iterate over Fasta records as string tuples.
+
+    Arguments:
+     - handle - input stream opened in text mode
+
+    For each record a tuple of two strings is returned, the FASTA title
+    line (without the leading '>' character), and the sequence (with any
+    whitespace removed). The title line is not divided up into an
+    identifier (the first word) and comment or description.
+
+    >>> with open("Fasta/dups.fasta") as handle:
+    ...     for values in SimpleFastaParser(handle):
+    ...         print(values)
+    ...
+    ('alpha', 'ACGTA')
+    ('beta', 'CGTC')
+    ('gamma', 'CCGCC')
+    ('alpha (again - this is a duplicate entry to test the indexing code)', 'ACGTA')
+    ('delta', 'CGCGC')
+
+    adapted from biopython : https://github.com/biopython/biopython/blob/master/Bio/SeqIO/FastaIO.py
+    """
+    # Skip any text before the first record (e.g. blank lines, comments)
+    for line in handle:
+        if line[0] == ">":
+            title = line[1:].rstrip()
+            break
+    else:
+        # no break encountered - probably an empty file
+        return
+
+    # Main logic
+    # Note, remove trailing whitespace, and any internal spaces
+    # (and any embedded \r which are possible in mangled files
+    # when not opened in universal read lines mode)
+    lines = []
+    for line in handle:
+        if line[0] == ">":
+            yield title, "".join(lines).replace(" ", "").replace("\r", "")
+            lines = []
+            title = line[1:].rstrip()
+            continue
+        lines.append(line.rstrip())
+
+    yield title, "".join(lines).replace(" ", "").replace("\r", "")
+
+
+def fasta_writer(tiselist, fasta_out):
+    os.makedirs(os.path.dirname(fasta_out), exist_ok=True)
+    with open(fasta_out, "w") as fileout:
+        for title, seq in tiselist:
+            lines = [f">{title}\n"]
+            for i in range(0, len(seq), 60):
+                lines.append(seq[i : i + 60] + "\n")
+            fileout.write("".join(lines))
+
+
+def write_only_chromosomes(refseq_dir_in, refseq_dir_out):
+    """Filters out plasmids from a fasta file, write a new fasta to a new location."""
+    fasta_list = [fa for fa in os.listdir(refseq_dir_in) if fa.endswith((".fasta", ".fa", ".fna"))]
+    for fasta in fasta_list:
+        tiselist = []
+        with open(os.path.join(refseq_dir_in, fasta), "r") as filein:
+            for title, seq in SimpleFastaParser(filein):
+                if not "plasmid" in title:
+                    tiselist.append((title, seq))
+        os.makedirs(refseq_dir_out, exist_ok=True)
+        fasta_writer(tiselist, os.path.join(refseq_dir_out, fasta))
 
 
 def main():
@@ -126,7 +196,10 @@ def main():
         taxon_csv.to_csv(out_csv)
     else:
         print(f"Request failed : {res.status_code}")
+        sys.exit()
 
+    genome_dir_no_plasmid = genome_dir + "_no_plasmid"
+    write_only_chromosomes(genome_dir, genome_dir_no_plasmid)
 
 if __name__ == "__main__":
     main()
