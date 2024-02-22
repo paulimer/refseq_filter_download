@@ -110,8 +110,8 @@ def main():
     genome_dir = args.genome_dir
     out_csv = args.taxon_csv
 
-    extr_ass = pd.read_csv(accession_file)
-    list_accessions = list(extr_ass["assembly_accession"])
+    accession_df = pd.read_csv(accession_file)
+    list_accessions = list(accession_df["assembly_accession"])
     all_accessions = "%2C".join(list_accessions)
 
     full_url = api_server + "/genome/accession/" + all_accessions + "/download"
