@@ -118,14 +118,17 @@ def main():
     params = {"api-key": os.getenv("NCBI_API_KEY"),
               "include_annotation_type": "GENOME_FASTA"}
     res = requests.get(full_url, params=params)
-    with open(zip_outfile, "wb") as fileout:
-        for chunk in res.iter_content(chunk_size=255):
-              if chunk:
-                fileout.write(chunk)
+    if res:
+        with open(zip_outfile, "wb") as fileout:
+            for chunk in res.iter_content(chunk_size=255):
+                  if chunk:
+                    fileout.write(chunk)
 
-    extract_zip(zip_outfile, genome_dir)
-    taxon_csv = create_taxon_csv(genome_dir, "./assembly_data_report.jsonl", ["genus", "family", "species"], args.rankedlineage)
-    taxon_csv.to_csv(out_csv)
+        extract_zip(zip_outfile, genome_dir)
+        taxon_csv = create_taxon_csv(genome_dir, "./assembly_data_report.jsonl", ["genus", "family", "species"], args.rankedlineage)
+        taxon_csv.to_csv(out_csv)
+    else:
+        print(f"Request failed : {res.status_code}")
 
 
 if __name__ == "__main__":
