@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import json
 import os
 import subprocess as sp
 import shutil
@@ -112,18 +113,14 @@ def main():
 
     accession_df = pd.read_csv(accession_file)
     list_accessions = list(accession_df["assembly_accession"])
-    all_accessions = "%2C".join(list_accessions)
 
-    full_url = api_server + "/genome/accession/" + all_accessions + "/download"
-    params = {"api-key": os.getenv("NCBI_API_KEY"),
-              "include_annotation_type": "GENOME_FASTA"}
-    res = requests.get(full_url, params=params)
+    full_url = api_server + "/genome/download"
+    payload = {"accessions": list_accessions, "include_annotation_type" : ["GENOME_FASTA"]}
+    params = {"api-key": os.getenv("NCBI_API_KEY")}
+    res = requests.post(full_url, params=params, json=payload)
     if res:
         with open(zip_outfile, "wb") as fileout:
-            for chunk in res.iter_content(chunk_size=255):
-                  if chunk:
-                    fileout.write(chunk)
-
+            fileout.write(res.content)
         extract_zip(zip_outfile, genome_dir)
         taxon_csv = create_taxon_csv(genome_dir, "./assembly_data_report.jsonl", ["genus", "family", "species"], args.rankedlineage)
         taxon_csv.to_csv(out_csv)
