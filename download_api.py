@@ -81,6 +81,11 @@ def main():
         help="The csv with a column assembly_accession containing assemblies to download"
     )
     parser.add_argument(
+        "rankedlineage",
+        type=str,
+        help="the rankedlineage.dmp file from ncbi taxonomy newtaxdump.gz"
+    )
+    parser.add_argument(
         "zip_outfile",
         type=str,
         help="zip output file path"
@@ -119,7 +124,7 @@ def main():
                 fileout.write(chunk)
 
     extract_zip(zip_outfile, genome_dir)
-    taxon_csv = create_taxon_csv(genome_dir, "./assembly_data_report.jsonl", ["genus", "family", "species"])
+    taxon_csv = create_taxon_csv(genome_dir, "./assembly_data_report.jsonl", ["genus", "family", "species"], args.rankedlineage)
     taxon_csv.to_csv(out_csv)
 
 
