@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import argparse
-import json
 import os
+import re
 import subprocess as sp
 import shutil
 import sys
@@ -11,10 +11,51 @@ import zipfile
 import pandas as pd
 import requests
 
+def clean_name(name):
+    cleaned_name = re.sub(r'[\/:*?"<>|(). ]+', "_", str(name))
+    return cleaned_name
 
-def create_taxon_csv(genome_dir, ncbi_jsonl, taxons=["genus"], ranked_lineage_path="rankedlineage.dmp"):
+
+def clean_dmp(dmp_df):
+    """"cleans the dmp file of ncbi taxdump's which is messy"""
+    clean_columns = ["genus",
+                     "family",
+                     "order",
+                     "class",
+                     "phylum",
+                     "kingdom",
+                     "superkingdom"]
+    for col in clean_columns:
+        dmp_df[col] = dmp_df[col].apply(clean_name)
+    return dmp_df
+
+
+def clean_gtdb(gtdb_df):
+    """cleans the gtdb 120 taxonomy"""
+    taxonomic_levels = ["domain", "phylum", "class", "order", "family", "genus", "species"]
+    gtdb_df[taxonomic_levels] = gtdb_df['taxonomy'].str.split(';', expand=True)
+    for col in taxonomic_levels:
+        gtdb_df[col] = gtdb_df[col].apply(lambda x : x[3:])
+    gtdb_df["assembly_accession"] = gtdb_df["assembly_accession"].apply(lambda x : x[3:])
+    gtdb_df = gtdb_df.drop(columns=['taxonomy'])
+    return gtdb_df
+
+
+def create_taxon_csv(genome_dir, ncbi_jsonl, taxons=["genus"], ranked_lineage_path="rankedlineage.dmp", gtdb_lineage_path="bac120_taxonomy.tsv.gz"):
     """Creates a csv with the filename and the taxon"""
     ranked_lineage = pd.read_table(ranked_lineage_path, sep=r"\t\|\t")
+    ranked_lineage.columns = [ "tax_id",
+                               "tax_name",
+                               "species",
+                               "genus",
+                               "family",
+                               "order",
+                               "class",
+                               "phylum",
+                               "kingdom",
+                               "superkingdom"
+                              ]
+    ranked_lineage = clean_dmp(ranked_lineage)
     tsv_ncbi = "ncbi_tsv.tsv"
     with open(tsv_ncbi, "w") as tsv_out:
         sp.run([
@@ -28,23 +69,17 @@ def create_taxon_csv(genome_dir, ncbi_jsonl, taxons=["genus"], ranked_lineage_pa
 
     ncbi_df = pd.read_csv(tsv_ncbi, sep="\t")
     ncbi_df.columns = ["tax_id", "assembly_accession"]
-    ranked_lineage.columns = [ "tax_id",
-                               "tax_name",
-                               "species",
-                               "genus",
-                               "family",
-                               "order",
-                               "class",
-                               "phylum",
-                               "kingdom",
-                               "superkingdom"
-                              ]
     assemblies_taxon = pd.merge(ncbi_df, ranked_lineage[taxons + ["tax_id"]], how="left", on="tax_id")
     genome_files = [g for g in os.listdir(genome_dir) if g.endswith((".fna", ".fasta", ".fa"))]
     genomes_df = pd.DataFrame(genome_files, columns=["genome"])
     genomes_df["assembly_accession"] = genomes_df["genome"].apply(lambda x: x[:15])
-    res_df = pd.merge(genomes_df, assemblies_taxon, how="left", on="assembly_accession")
-    return res_df[taxons + ["genome"]]
+    ncbi_df = pd.merge(genomes_df, assemblies_taxon, how="left", on="assembly_accession")
+    gtdb_tax = pd.read_csv(gtdb_lineage_path, sep="\t", names=["assembly_accession", "taxonomy"])
+    gtdb_tax = clean_gtdb(gtdb_tax)
+    suffixes_nc_gt = (".ncbi", ".gtdb")
+    res_df = pd.merge(ncbi_df, gtdb_tax, how="left", on="assembly_accession", suffixes=suffixes_nc_gt)
+    outcols = [tax + suf for tax in taxons for suf in suffixes_nc_gt]
+    return res_df[outcols + ["genome"]]
 
 
 def extract_zip(path_zip, out_genome_dir):
@@ -169,7 +204,12 @@ def main():
     parser.add_argument(
         "taxon_csv",
         type=str,
-        help="The output csv linkning genomes and taxon levels"
+        help="The output csv linking genomes and taxon levels"
+    )
+    parser.add_argument(
+        "gtdb",
+        type=str,
+        help="The taxonomy from gtdb"
     )
 
     args = parser.parse_args()
@@ -192,13 +232,13 @@ def main():
         with open(zip_outfile, "wb") as fileout:
             fileout.write(res.content)
         extract_zip(zip_outfile, genome_dir)
-        taxon_csv = create_taxon_csv(genome_dir, "./assembly_data_report.jsonl", ["genus", "family", "species"], args.rankedlineage)
+        taxon_csv = create_taxon_csv(genome_dir, "./assembly_data_report.jsonl", ["order", "genus", "family", "species"], args.rankedlineage, args.gtdb)
         taxon_csv.to_csv(out_csv)
     else:
         print(f"Request failed : {res.status_code}")
         sys.exit()
 
-    genome_dir_no_plasmid = genome_dir + "_no_plasmid"
+    genome_dir_no_plasmid = genome_dir.strip("/") + "_no_plasmid"
     write_only_chromosomes(genome_dir, genome_dir_no_plasmid)
 
 if __name__ == "__main__":

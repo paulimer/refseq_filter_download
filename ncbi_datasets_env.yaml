@@ -1,0 +1,10 @@
+name: ncbi_datasets
+channels:
+    - conda-forge
+    - defaults
+dependencies:
+  - ncbi-datasets-cli
+  - pandas
+  - requests
+variables:
+  NCBI_API_KEY: REDACTED
