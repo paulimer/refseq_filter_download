@@ -98,6 +98,8 @@ def extract_zip(path_zip, out_genome_dir):
                 # copy jsons to current wd
                 for fn in filename:
                     shutil.copy(os.path.join(dirpath, fn), os.getcwd())
+    # delete the zip file
+    os.remove(path_zip)
 
 
 def SimpleFastaParser(handle):
@@ -192,9 +194,9 @@ def main():
         help="the rankedlineage.dmp file from ncbi taxonomy newtaxdump.gz"
     )
     parser.add_argument(
-        "zip_outfile",
+        "gtdb_taxonomy",
         type=str,
-        help="zip output file path"
+        help="The taxonomy from gtdb"
     )
     parser.add_argument(
         "genome_dir",
@@ -206,16 +208,11 @@ def main():
         type=str,
         help="The output csv linking genomes and taxon levels"
     )
-    parser.add_argument(
-        "gtdb",
-        type=str,
-        help="The taxonomy from gtdb"
-    )
+
 
     args = parser.parse_args()
     # expects a csv with a column assembly_accession
     accession_file = args.accession_csv
-    zip_outfile = args.zip_outfile
     # base address of ncbi api server
     api_server = args.api_server
     genome_dir = args.genome_dir
@@ -227,12 +224,13 @@ def main():
     full_url = api_server + "/genome/download"
     payload = {"accessions": list_accessions, "include_annotation_type" : ["GENOME_FASTA"]}
     params = {"api-key": os.getenv("NCBI_API_KEY")}
+    zip_outfile = "temp_genomes.zip"
     res = requests.post(full_url, params=params, json=payload)
     if res:
         with open(zip_outfile, "wb") as fileout:
             fileout.write(res.content)
         extract_zip(zip_outfile, genome_dir)
-        taxon_csv = create_taxon_csv(genome_dir, "./assembly_data_report.jsonl", ["order", "genus", "family", "species"], args.rankedlineage, args.gtdb)
+        taxon_csv = create_taxon_csv(genome_dir, "./assembly_data_report.jsonl", ["order", "genus", "family", "species"], args.rankedlineage, args.gtdb_taxonomy)
         taxon_csv.to_csv(out_csv)
     else:
         print(f"Request failed : {res.status_code}")
