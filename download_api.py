@@ -85,7 +85,6 @@ def create_taxon_csv(genome_dir, ncbi_jsonl, taxons=["genus"], ranked_lineage_pa
 def extract_zip(path_zip, out_genome_dir):
     """Extracts and reorganises ncbi's api's zip output"""
     os.makedirs(out_genome_dir, exist_ok=True)
-
     zf = zipfile.ZipFile(path_zip)
     with tempfile.TemporaryDirectory() as tmpdirname:
         zf.extractall(tmpdirname)
@@ -225,17 +224,25 @@ def main():
     payload = {"accessions": list_accessions, "include_annotation_type" : ["GENOME_FASTA"]}
     params = {"api-key": os.getenv("NCBI_API_KEY")}
     zip_outfile = "temp_genomes.zip"
-    res = requests.post(full_url, params=params, json=payload)
-    if res:
-        with open(zip_outfile, "wb") as fileout:
-            fileout.write(res.content)
-        extract_zip(zip_outfile, genome_dir)
-        taxon_csv = create_taxon_csv(genome_dir, "./assembly_data_report.jsonl", ["order", "genus", "family", "species"], args.rankedlineage, args.gtdb_taxonomy)
-        taxon_csv.to_csv(out_csv)
-    else:
-        print(f"Request failed : {res.status_code}")
-        sys.exit()
 
+    # breaking the input into chunks of 1000 accessions
+    for i in range(0, len(list_accessions), 1000):
+        chunk = list_accessions[i:i+1000]
+        payload = {"accessions": chunk, "include_annotation_type" : ["GENOME_FASTA"]}
+        res = requests.post(full_url, params=params, json=payload)
+        if res:
+            with open(zip_outfile, "wb") as fileout:
+                fileout.write(res.content)
+            # extract the zip to the genome directory
+            extract_zip(zip_outfile, genome_dir)
+
+        else:
+            print(f"Request failed : {res.status_code}")
+            sys.exit()
+
+    # create taxon csv
+    taxon_csv = create_taxon_csv(genome_dir, "./assembly_data_report.jsonl", ["order", "genus", "family", "species"], args.rankedlineage, args.gtdb_taxonomy)
+    taxon_csv.to_csv(out_csv)
     genome_dir_no_plasmid = genome_dir.strip("/") + "_no_plasmid"
     write_only_chromosomes(genome_dir, genome_dir_no_plasmid)
 
