@@ -221,13 +221,12 @@ def main():
     list_accessions = list(accession_df["assembly_accession"])
 
     full_url = api_server + "/genome/download"
-    payload = {"accessions": list_accessions, "include_annotation_type" : ["GENOME_FASTA"]}
     params = {"api-key": os.getenv("NCBI_API_KEY")}
     zip_outfile = "temp_genomes.zip"
 
-    # breaking the input into chunks of 1000 accessions
-    for i in range(0, len(list_accessions), 1000):
-        chunk = list_accessions[i:i+1000]
+    # breaking the input into chunks of 100 accessions
+    for i in range(0, len(list_accessions), 5):
+        chunk = list_accessions[i:i+5]
         payload = {"accessions": chunk, "include_annotation_type" : ["GENOME_FASTA"]}
         res = requests.post(full_url, params=params, json=payload)
         if res:
