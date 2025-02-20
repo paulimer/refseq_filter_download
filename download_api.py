@@ -36,12 +36,11 @@ def clean_gtdb(gtdb_df):
     gtdb_df[taxonomic_levels] = gtdb_df['taxonomy'].str.split(';', expand=True)
     for col in taxonomic_levels:
         gtdb_df[col] = gtdb_df[col].apply(lambda x : x[3:])
-    gtdb_df["assembly_accession"] = gtdb_df["assembly_accession"].apply(lambda x : x[3:])
     gtdb_df = gtdb_df.drop(columns=['taxonomy'])
     return gtdb_df
 
 
-def create_taxon_csv(genome_dir, ncbi_jsonl, taxons=["genus"], ranked_lineage_path="rankedlineage.dmp", gtdb_lineage_path="bac120_taxonomy.tsv.gz"):
+def create_taxon_csv(genome_dir, ncbi_jsonl, taxons=["genus"], ranked_lineage_path="rankedlineage.dmp", gtdb_metadata_path="bac120_taxonomy.tsv.gz"):
     """Creates a csv with the filename and the taxon"""
     ranked_lineage = pd.read_table(ranked_lineage_path, sep=r"\t\|\t")
     ranked_lineage.columns = [ "tax_id",
@@ -74,10 +73,11 @@ def create_taxon_csv(genome_dir, ncbi_jsonl, taxons=["genus"], ranked_lineage_pa
     genomes_df = pd.DataFrame(genome_files, columns=["genome"])
     genomes_df["assembly_accession"] = genomes_df["genome"].apply(lambda x: x[:15])
     ncbi_df = pd.merge(genomes_df, assemblies_taxon, how="left", on="assembly_accession")
-    gtdb_tax = pd.read_csv(gtdb_lineage_path, sep="\t", names=["assembly_accession", "taxonomy"])
+    gtdb_tax = pd.read_csv(gtdb_metadata_path, sep="\t", usecols=["ncbi_genbank_assembly_accession", "gtdb_taxonomy"])
+    gtdb_tax.columns = ["taxonomy", "assembly_accession"]
     gtdb_tax = clean_gtdb(gtdb_tax)
     suffixes_nc_gt = (".ncbi", ".gtdb")
-    res_df = pd.merge(ncbi_df, gtdb_tax, how="left", on="assembly_accession", suffixes=suffixes_nc_gt)
+    res_df = pd.merge(ncbi_df, gtdb_tax, how="inner", on="assembly_accession", suffixes=suffixes_nc_gt)
     outcols = [tax + suf for tax in taxons for suf in suffixes_nc_gt]
     return res_df[outcols + ["genome"]]
 
@@ -96,7 +96,12 @@ def extract_zip(path_zip, out_genome_dir):
             else:
                 # copy jsons to current wd
                 for fn in filename:
-                    shutil.copy(os.path.join(dirpath, fn), os.getcwd())
+                    if os.path.exists(os.path.join(os.getcwd(), fn)):
+                        with open(os.path.join(os.getcwd(), fn), "a") as fileout:
+                            with open(os.path.join(dirpath, fn), "r") as filein:
+                                fileout.write(filein.read())
+                    else:
+                        shutil.copy(os.path.join(dirpath, fn), os.getcwd())
     # delete the zip file
     os.remove(path_zip)
 
@@ -180,7 +185,7 @@ def main():
         "--api_server",
         type=str,
         help="The base url of the ncbi api server",
-        default= "https://api.ncbi.nlm.nih.gov/datasets/v2alpha"
+        default= "https://api.ncbi.nlm.nih.gov/datasets/v2"
     )
     parser.add_argument(
         "accession_csv",
@@ -193,9 +198,9 @@ def main():
         help="the rankedlineage.dmp file from ncbi taxonomy newtaxdump.gz"
     )
     parser.add_argument(
-        "gtdb_taxonomy",
+        "gtdb_metadata",
         type=str,
-        help="The taxonomy from gtdb"
+        help="The metadata from gtdb"
     )
     parser.add_argument(
         "genome_dir",
@@ -224,9 +229,13 @@ def main():
     params = {"api-key": os.getenv("NCBI_API_KEY")}
     zip_outfile = "temp_genomes.zip"
 
-    # breaking the input into chunks of 100 accessions
-    for i in range(0, len(list_accessions), 5):
-        chunk = list_accessions[i:i+5]
+    # breaking the input into chunks of 10 accessions
+    chunk_size = 10
+    jsonl_file = "./assembly_data_report.jsonl"
+    if os.path.exists(jsonl_file):
+        os.remove(jsonl_file)
+    for i in range(0, len(list_accessions), chunk_size):
+        chunk = list_accessions[i:i+chunk_size]
         payload = {"accessions": chunk, "include_annotation_type" : ["GENOME_FASTA"]}
         res = requests.post(full_url, params=params, json=payload)
         if res:
@@ -240,7 +249,7 @@ def main():
             sys.exit()
 
     # create taxon csv
-    taxon_csv = create_taxon_csv(genome_dir, "./assembly_data_report.jsonl", ["order", "genus", "family", "species"], args.rankedlineage, args.gtdb_taxonomy)
+    taxon_csv = create_taxon_csv(genome_dir, jsonl_file, ["order", "family", "genus", "species"], args.rankedlineage, args.gtdb_metadata)
     taxon_csv.to_csv(out_csv)
     genome_dir_no_plasmid = genome_dir.strip("/") + "_no_plasmid"
     write_only_chromosomes(genome_dir, genome_dir_no_plasmid)
